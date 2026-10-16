@@ -1,0 +1,64 @@
+name: Build upstream app
+
+on:
+  schedule:
+    - cron: "5 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency: build
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      APP: spreadsheet
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find the upstream snapshot
+        run: |
+          read -r sha date < <(gh api "repos/HeyPuter/everything/commits?path=src/$APP&per_page=1" --jq '.[0] | [.sha, .commit.committer.date] | @tsv')
+          d="${date:0:10}"
+          VER="${d//-/.}-${sha:0:7}"
+          echo "VER=$VER" >> "$GITHUB_ENV"
+          if [ -d "v$VER" ]; then echo "HAVE=true" >> "$GITHUB_ENV"; fi
+          echo "Snapshot $VER"
+
+      - uses: actions/setup-node@v4
+        if: env.HAVE != 'true'
+        with:
+          node-version: 22
+
+      - name: Build
+        if: env.HAVE != 'true'
+        run: |
+          git clone --depth 1 https://github.com/HeyPuter/everything.git up
+          (cd "up/src/$APP" && npm ci && npm run build -- --base=./)
+          mkdir "v$VER"
+          cp -a "up/src/$APP/dist/." "v$VER/"
+          cp up/LICENSE "v$VER/LICENSE"
+          rm -rf up
+          mkdir -p latest
+          printf '<!doctype html><meta charset="utf-8"><title>%s</title><meta http-equiv="refresh" content="0; url=../v%s/"><link rel="canonical" href="../v%s/"><a href="../v%s/">Open %s</a>\n' "$APP" "$VER" "$VER" "$VER" "$APP" > latest/index.html
+          [ -f versions.json ] || echo '{}' > versions.json
+          jq --arg v "$VER" '{latest: $v, versions: ([$v] + ((.versions // []) - [$v]))}' versions.json > versions.tmp
+          mv versions.tmp versions.json
+          cat versions.json
+
+      - name: Commit and request a Pages build
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing new"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Snapshot $VER"
+          git push
+          gh api -X POST "repos/${{ github.repository }}/pages/builds"
