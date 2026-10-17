@@ -50,6 +50,9 @@ jobs:
           mv versions.tmp versions.json
           cat versions.json
 
+      - name: Keep the site under its size cap
+        run: bash scripts/prune.sh
+
       - name: Commit and request a Pages build
         run: |
           git add -A
