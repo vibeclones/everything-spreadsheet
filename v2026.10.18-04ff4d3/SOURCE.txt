@@ -1,0 +1,2 @@
+Built from HeyPuter/everything at commit 04ff4d3 (src/spreadsheet).
+https://github.com/HeyPuter/everything/tree/04ff4d3/src/spreadsheet
